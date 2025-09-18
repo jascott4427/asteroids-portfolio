@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Asteroids | My Portfolio</title>
+    <style>
+        canvas { display: block; margin: 0 auto; background: black; }
+        body { color: white; font-family: Arial, sans-serif; text-align: center; }
+    </style>
+</head>
+<body>
+    <h1>Welcome to My Portfolio</h1>
+    <p>Shoot the right asteroid to navigate!</p>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        // Game variables
+        let asteroids = [
+            { x: 200, y: 150, radius: 30, url: "/resume/" },
+            { x: 400, y: 300, radius: 30, url: "/projects/" },
+            { x: 600, y: 450, radius: 30, url: "/game-projects/" },
+        ];
+        let bullets = [];
+        const ship = { x: 400, y: 300 };
+
+        // Draw functions
+        function drawShip() {
+            ctx.beginPath();
+            ctx.fillStyle = "white";
+            ctx.arc(ship.x, ship.y, 10, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        function drawAsteroids() {
+            asteroids.forEach((ast) => {
+                ctx.beginPath();
+                ctx.fillStyle = "gray";
+                ctx.arc(ast.x, ast.y, ast.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.closePath();
+            });
+        }
+
+        function drawBullets() {
+            bullets.forEach((bullet) => {
+                ctx.beginPath();
+                ctx.fillStyle = "red";
+                ctx.arc(bullet.x, bullet.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.closePath();
+            });
+        }
+
+        // Update game state
+        function update() {
+            // Move bullets
+            bullets = bullets.map((b) => ({ ...b, y: b.y - 5 })).filter((b) => b.y > 0);
+
+            // Check collisions
+            bullets.forEach((bullet) => {
+                asteroids.forEach((asteroid, index) => {
+                    const dx = bullet.x - asteroid.x;
+                    const dy = bullet.y - asteroid.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance < asteroid.radius) {
+                        // Navigate to the asteroid's URL
+                        window.location.href = asteroid.url;
+                    }
+                });
+            });
+        }
+
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            update();
+            drawShip();
+            drawAsteroids();
+            drawBullets();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Controls
+        canvas.addEventListener("click", (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            bullets.push({ x: x, y: y });
+        });
+
+        // Start the game
+        gameLoop();
+    </script>
+</body>
+</html>
