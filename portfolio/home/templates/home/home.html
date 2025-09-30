@@ -1,97 +1,281 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Asteroids | My Portfolio</title>
+    <meta charset="UTF-8">
+    <title>Asteroids Start</title>
     <style>
-        canvas { display: block; margin: 0 auto; background: black; }
-        body { color: white; font-family: Arial, sans-serif; text-align: center; }
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: black;
+        }
+        canvas {
+            display: block;
+        }
     </style>
 </head>
 <body>
-    <h1>Welcome to My Portfolio</h1>
-    <p>Shoot the right asteroid to navigate!</p>
-    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    {% load static %}
+    <canvas id="gameCanvas"></canvas>
 
     <script>
+        // =============================
+        // Constants
+        // =============================
+        const NUM_STARS = 200;   // number of stars
+        const MAX_STAR_SIZE = 3; // maximum radius of stars
+
+        const PLAYER_SIZE = 60;     // ship size in pixels
+        const SHIP_ACC = 200;       // pixels/s^2
+        const FRICTION = 0.8;       // cooeficient of friction
+        const SHIP_VEL = 500;       // pixels / second
+        const SHIP_HIT_RADIUS = 25; // pixels
+
+        const BULLET_VEL = 600;         // pixels/second
+        const BULLET_DUR = 2;           // seconds
+        const BULLET_SIZE = 20;         // pixels
+        const BULLET_HIT_RADIUS = 10;   // pixels
+
+        const LRG_TO_MED_ROID_NUM = 2; 
+
+        // =============================
+        // Setup Canvas
+        // =============================
         const canvas = document.getElementById("gameCanvas");
         const ctx = canvas.getContext("2d");
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
 
-        // Game variables
-        let asteroids = [
-            { x: 200, y: 150, radius: 30, url: "/resume/" },
-            { x: 400, y: 300, radius: 30, url: "/projects/" },
-            { x: 600, y: 450, radius: 30, url: "/game-projects/" },
-        ];
-        let bullets = [];
-        const ship = { x: 400, y: 300 };
+        // =============================
+        // Background class
+        // =============================
+        class Background {
+            constructor() {
+                this.stars = [];
+                for (let i = 0; i < NUM_STARS; i++) {
+                    this.stars.push({
+                        x: Math.random() * canvas.width,
+                        y: Math.random() * canvas.height,
+                        r: Math.random() * MAX_STAR_SIZE + 1,
+                        alpha: Math.random() * 0.5 + 0.5
+                    });
+                }
+            }
 
-        // Draw functions
-        function drawShip() {
-            ctx.beginPath();
-            ctx.fillStyle = "white";
-            ctx.arc(ship.x, ship.y, 10, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.closePath();
+            draw() {
+                ctx.fillStyle = "black";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                for (let star of this.stars) {
+                    ctx.globalAlpha = star.alpha;
+                    ctx.fillStyle = "white";
+                    ctx.beginPath();
+                    ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1.0;
+            }
         }
 
-        function drawAsteroids() {
-            asteroids.forEach((ast) => {
-                ctx.beginPath();
-                ctx.fillStyle = "gray";
-                ctx.arc(ast.x, ast.y, ast.radius, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.closePath();
-            });
+        // =============================
+        // Player class
+        // =============================
+        class Player {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.angle = 0; // facing up
+                this.vx = 0;
+                this.vy = 0;
+                this.hitRadius = SHIP_HIT_RADIUS;
+
+                this.img = new Image();
+                this.img.src = "{% static 'Starfighter Files/sprites/Ships/ship-a/ship-a1.png' %}";
+                this.ready = false;
+                this.img.onload = () => { this.ready = true; }
+
+                // Physics constants
+                this.acc = SHIP_ACC;       // pixels per second^2
+                this.angVel = Math.PI; // rad/s
+                this.friction = FRICTION;    // per second
+                this.vel = SHIP_VEL;     // pixels per second
+                this.hitboxActive = true // On for debugging
+            }
+
+            update(keys, dt) {
+                // Rotation
+                if (keys["ArrowLeft"] || keys["KeyA"]) this.angle -= this.angVel * dt;
+                if (keys["ArrowRight"] || keys["KeyD"]) this.angle += this.angVel * dt;
+
+                // Thrust
+                if (keys["ArrowUp"] || keys["KeyW"]) {
+                    const thrustAngle = this.angle;
+                    this.vx += Math.cos(thrustAngle) * this.acc * dt;
+                    this.vy += Math.sin(thrustAngle) * this.acc * dt;
+                }
+
+                // Apply friction
+                this.vx *= Math.pow(this.friction, dt);
+                this.vy *= Math.pow(this.friction, dt);
+
+                // Limit max velocity
+                const speed = Math.sqrt(this.vx*this.vx + this.vy*this.vy);
+                if (speed > this.vel) {
+                    const scale = this.vel / speed;
+                    this.vx *= scale;
+                    this.vy *= scale;
+                }
+
+                // Update position
+                this.x += this.vx * dt;
+                this.y += this.vy * dt;
+
+                // Screen wrap
+                if (this.x > canvas.width) this.x = 0;
+                if (this.x < 0) this.x = canvas.width;
+                if (this.y > canvas.height) this.y = 0;
+                if (this.y < 0) this.y = canvas.height;
+            }
+
+            draw() {
+                if (!this.ready) return;
+                // player 
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle + Math.PI/2);
+                ctx.drawImage(this.img, -PLAYER_SIZE/2, -PLAYER_SIZE/2, PLAYER_SIZE, PLAYER_SIZE);
+
+                // hitbox
+                if (this.hitboxActive) {
+                    ctx.fillStyle = "rgba(255, 0, 0, 0.3)";
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.hitRadius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                ctx.restore();
+            }
         }
 
-        function drawBullets() {
-            bullets.forEach((bullet) => {
-                ctx.beginPath();
-                ctx.fillStyle = "red";
-                ctx.arc(bullet.x, bullet.y, 3, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.closePath();
-            });
-        }
+        class Bullet {
+            constructor(originX, originY, angle, hitbox_status) {
+                this.x = originX;
+                this.y = originY;
+                this.angle = angle;
+                this.dur = BULLET_DUR;
+                this.vel = BULLET_VEL;
+                this.hitboxActive = hitbox_status
+                this.hitRadius = BULLET_HIT_RADIUS;
+                this.vx = 0;
+                this.vy = 0;
+                this.size = BULLET_SIZE;
 
-        // Update game state
-        function update() {
-            // Move bullets
-            bullets = bullets.map((b) => ({ ...b, y: b.y - 5 })).filter((b) => b.y > 0);
+                this.img = new Image();
+                this.img.src = "{% static 'Starfighter Files/sprites/FX/bullet/bullet1.png' %}";
+                this.ready = false;
+                this.img.onload = () => { this.ready = true; }
+            }
 
-            // Check collisions
-            bullets.forEach((bullet) => {
-                asteroids.forEach((asteroid, index) => {
-                    const dx = bullet.x - asteroid.x;
-                    const dy = bullet.y - asteroid.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
-                    if (distance < asteroid.radius) {
-                        // Navigate to the asteroid's URL
-                        window.location.href = asteroid.url;
+            update(dt) {
+                // Calculate trajectory 
+                this.vx = Math.cos(this.angle) * this.vel;
+                this.vy = Math.sin(this.angle) * this.vel;
+
+                // Update position
+                this.x += this.vx * dt;
+                this.y += this.vy * dt;
+
+                // Update duration
+                this.dur -= dt;
+
+                // Screen wrap
+                if (this.x > canvas.width) this.x = 0;
+                if (this.x < 0) this.x = canvas.width;
+                if (this.y > canvas.height) this.y = 0;
+                if (this.y < 0) this.y = canvas.height;
+            }
+
+            draw() {
+                if (!this.ready) return;
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+                ctx.drawImage(this.img, -this.size/2, -this.size/2, this.size, this.size);
+
+                // hitbox
+                if (this.hitboxActive) {
+                    ctx.fillStyle = "rgba(255, 0, 0, 0.3)";
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.hitRadius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                ctx.restore();
+            }
+        }   
+
+        // =============================
+        // Key listener
+        // =============================
+        const keys = {};
+        window.addEventListener("keydown", e => keys[e.code] = true);
+        window.addEventListener("keyup", e => keys[e.code] = false);
+
+        // =============================
+        // GameLoop class
+        // =============================
+        class GameLoop {
+            constructor() {
+                this.background = new Background();
+                this.player = new Player(canvas.width/2, canvas.height/2);
+                this.bullets = [];
+                this.lastTime = performance.now();
+                this.lastSpaceBar = false;
+            }
+
+            draw = (currentTime) => {
+                const dt = (currentTime - this.lastTime) / 1000; // seconds
+                this.lastTime = currentTime;
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Bullet Firing
+                if (keys["Space"] && !this.lastSpaceBar) {
+                    // Spawn bullet at player
+                    const bullet = new Bullet(this.player.x, this.player.y, this.player.angle, this.player.hitboxActive);
+                    this.bullets.push(bullet);
+                }
+
+                this.lastSpaceBar = keys["Space"];
+
+                // Draw background layers
+                this.background.draw();
+
+                // Hnadle player drawing
+                this.player.update(keys, dt);
+                this.player.draw();
+
+                // Draw bullets
+                for (let i = this.bullets.length -1; i>= 0; i--) {
+                    this.bullets[i].update(dt);
+                    this.bullets[i].draw();
+
+                    // Get rid of expired bullets
+                    if (this.bullets[i].dur <= 0) {
+                        this.bullets.splice(i, 1);
                     }
-                });
-            });
+                }
+
+                requestAnimationFrame(this.draw);
+            }
         }
 
-        function gameLoop() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            update();
-            drawShip();
-            drawAsteroids();
-            drawBullets();
-            requestAnimationFrame(gameLoop);
-        }
-
-        // Controls
-        canvas.addEventListener("click", (e) => {
-            const rect = canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            bullets.push({ x: x, y: y });
-        });
-
-        // Start the game
-        gameLoop();
+        // =============================
+        // Start game
+        // =============================
+        const game = new GameLoop();
+        requestAnimationFrame(game.draw);
     </script>
 </body>
 </html>
