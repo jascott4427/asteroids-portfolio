@@ -21,15 +21,15 @@
 
     <script>
 
-        // TODO: Fix music not playing. make sure to start on new game and not on load of gameloop
-        // TODO: Add asteroids
         // TODO: add animations for ships and bullets
         // TODO: add explosion animations and fx
         // TODO: add point system
-        // TODO: add game logic and spawn system
-        // TODO: collision detection system
         // TODO: add arcade style main menu
         // TODO: add background to main menu
+        // Add gameover screen
+        // Add delay between waves, asteroid splitting, dying, etc
+        // Fix only using large roid hitbox not smaller ones 
+        // Fix wave system (spawns way too many roids)
 
         // =============================
         // Constants
@@ -43,7 +43,7 @@
         const SHIP_ACC = 200;       // pixels/s^2
         const FRICTION = 0.8;       // cooeficient of friction
         const SHIP_VEL = 500;       // pixels / second
-        const SHIP_HIT_RADIUS = 25; // pixels
+        const SHIP_HIT_RADIUS = 15; // pixels
 
         // Bullets
         const BULLET_VEL = 600;         // pixels/second
@@ -53,9 +53,9 @@
 
         // Asteroids
         const ROIDS = {
-            LARGE: {size: 120, hitRadius: 60, points: 20},
-            MEDIUM: {size: 40, hitRadius: 40, points: 50},
-            SMALL: {size: 20, hitRadius: 20, points: 100}
+            large: {size: 150, hitRadius: 75, points: 20},
+            medium: {size: 120, hitRadius: 35, points: 50},
+            small: {size: 90, hitRadius: 15, points: 100}
         };
         const ROID_MAX_V = 300;
         const ROID_MIN_V = 50;
@@ -63,8 +63,11 @@
         const ROID_MIN_W = 0.5;
 
         // Game
-        const INIT_ROIDS = 4;
-        
+        const INIT_ROIDS = 1;
+
+        // Website color scheme
+        const DEFAULT_PRIMARY = "#2CFF05";   // change as desired
+        const DEFAULT_BACKGROUND = "#000000"; // change as desired
 
         // =============================
         // Setup Canvas
@@ -73,6 +76,131 @@
         const ctx = canvas.getContext("2d");
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
+
+        // ==============================
+        // Helper functions
+        // ==============================
+        function hexToRgb(hex) {
+            hex = (hex || "").replace(/^#/, "");
+            if (hex.length === 3) hex = hex.split("").map(c => c + c).join("");
+            const num = parseInt(hex, 16);
+            return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+        }
+
+        // function hexToCssColor(hex) {
+        //     hex = (hex || "").replace(/^#/, "");
+        //     if (hex.length === 3) hex = hex.split("").map(c => c + c).join("");
+        //     return `#${hex}`;
+        // }
+
+
+        function rgbToGrayscale(r, g, b) {
+            // Perceptual luminance
+            return 0.299 * r + 0.587 * g + 0.114 * b;
+        }
+
+        function lerp(a, b, t) { return a + (b - a) * t; }
+
+        function lerpColor(c1, c2, t) {
+            return {
+                r: Math.round(lerp(c1.r, c2.r, t)),
+                g: Math.round(lerp(c1.g, c2.g, t)),
+                b: Math.round(lerp(c1.b, c2.b, t))
+            };
+        }
+
+        /* 
+        img2gradient:
+        - img: an HTMLImageElement which is already loaded
+        - primaryHex: e.g. "#00aaff"
+        - backgroundHex: e.g. "#101010"
+        returns a dataURL string of the processed image (RGBA preserved)
+        */
+        function img2gradient(img, primaryHex, backgroundHex) {
+            // create offscreen canvas sized to image
+            const c = document.createElement('canvas');
+            c.width = img.naturalWidth || img.width;
+            c.height = img.naturalHeight || img.height;
+            const cx = c.getContext('2d');
+
+            // draw original
+            cx.clearRect(0, 0, c.width, c.height);
+            cx.drawImage(img, 0, 0, c.width, c.height);
+
+            // get pixels
+            const imageData = cx.getImageData(0, 0, c.width, c.height);
+            const data = imageData.data;
+
+            const primary = hexToRgb(primaryHex);
+            const background = hexToRgb(backgroundHex);
+
+            // process pixels
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+                // if fully transparent, skip
+                if (a === 0) continue;
+
+                const gray = rgbToGrayscale(r, g, b) / 255; // normalized 0..1
+                const mapped = lerpColor(background, primary, gray);
+
+                data[i] = mapped.r;
+                data[i + 1] = mapped.g;
+                data[i + 2] = mapped.b;
+                // preserve alpha
+            }
+
+            cx.putImageData(imageData, 0, 0);
+            return c.toDataURL('image/png');
+        }
+
+        // Example for Player constructor: replace the loading block
+        // inside class Player constructor:
+        // ---------------------------------------------------------
+        /*
+        this.img = new Image();
+        this.img.src = "{% static 'Starfighter Files/sprites/Ships/ship-a/ship-a1.png' %}";
+        this.ready = false;
+        this.img.onload = () => { this.ready = true; }
+        */
+        // Replace with:
+
+        /**
+         * Load an image, recolor it with a gradient, and assign to a target object.
+         * @param {Object} target - The object that will receive .img and .ready
+         * @param {string} src - The image filename or URL
+         * @param {string} [primary=DEFAULT_PRIMARY] - The primary hex color
+         * @param {string} [background=DEFAULT_BACKGROUND] - The background hex color
+         */
+        function file2gradient(target, src, primary = DEFAULT_PRIMARY, background = DEFAULT_BACKGROUND) {
+            target.img = new Image();
+            target.ready = false;
+
+            const base = new Image();
+            base.crossOrigin = "anonymous";
+            base.src = src;
+
+            base.onload = () => {
+                try {
+                    const dataUrl = img2gradient(base, primary, background);
+                    const processed = new Image();
+                    processed.src = dataUrl;
+                    processed.onload = () => {
+                        target.img = processed;
+                        target.ready = true;
+                    };
+                } catch (err) {
+                    console.warn("Gradient conversion failed:", err);
+                    target.img.src = src;
+                    target.ready = true;
+                }
+            };
+
+            base.onerror = (e) => {
+                console.warn("Could not load sprite:", e);
+                target.img.src = src;
+                target.ready = true;
+            };
+        }
 
         // =============================
         // Sound Manager
@@ -100,7 +228,7 @@
                 if (this.sounds[name]) {
                     const sound = this.sounds[name].cloneNode();
                     sound.volume = this.soundVolume;
-                    sound.play().catch(e => console.log('Could not play sound ${name}:', e))
+                    sound.play().catch(e => console.log(`Could not play sound ${name}:`, e));
                 }
             }
 
@@ -178,11 +306,11 @@
                 if (!this.visible) return;
 
                 // Semi-transparent overlay
-                ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+                ctx.fillStyle = DEFAULT_BACKGROUND;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
                 // Title
-                ctx.fillStyle = "white";
+                ctx.fillStyle = DEFAULT_PRIMARY;
                 ctx.font = "48px Arial";
                 ctx.textAlign = "center";
                 ctx.fillText("ASTEROIDS", canvas.width/2, canvas.height/2 - 50);
@@ -214,12 +342,12 @@
             }
 
             draw() {
-                ctx.fillStyle = "black";
+                ctx.fillStyle = DEFAULT_BACKGROUND;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
                 for (let star of this.stars) {
                     ctx.globalAlpha = star.alpha;
-                    ctx.fillStyle = "white";
+                    ctx.fillStyle = DEFAULT_PRIMARY;
                     ctx.beginPath();
                     ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
                     ctx.fill();
@@ -244,10 +372,8 @@
                 this.isThrusting = false;
                 this.thrustSound = null;
 
-                this.img = new Image();
-                this.img.src = "{% static 'Starfighter Files/sprites/Ships/ship-a/ship-a1.png' %}";
-                this.ready = false;
-                this.img.onload = () => { this.ready = true; }
+                // Load and process player asset
+                file2gradient(this, "{% static 'Starfighter Files/sprites/Ships/ship-a/ship-a1.png' %}");
 
                 // Physics constants
                 this.acc = SHIP_ACC;       // pixels per second^2
@@ -340,10 +466,7 @@
                 this.vy = 0;
                 this.size = BULLET_SIZE;
 
-                this.img = new Image();
-                this.img.src = "{% static 'Starfighter Files/sprites/FX/bullet/bullet1.png' %}";
-                this.ready = false;
-                this.img.onload = () => { this.ready = true; }
+                file2gradient(this, "{% static 'Starfighter Files/sprites/FX/bullet/bullet1.png' %}");
             }
 
             update(dt) {
@@ -398,25 +521,22 @@
                 this.hitboxActive = hitboxStatus;
                 this.size = 0;
 
-                this.img = new Image();
                 if (this.roidSize == 'large') {
-                    this.img.src = "{% static 'Starfighter Files/sprites/Asteroids/big-c.png' %}";
-                    this.hitRadius = ROIDS.LARGE.hitRadius;
-                    this.size = ROIDS.LARGE.size;
-                    this.points = ROIDS.LARGE.points;
-                } else if (this.roidSize == 'med') {
-                    this.img.src = "{% static 'Starfighter Files/sprites/Asteroids/med-c.png' %}";
-                    this.hitRadius = ROIDS.MEDIUM.hitRadius;
-                    this.size = ROIDS.MEDIUM.size;
-                    this.points = ROIDS.MEDIUM.points;
+                    file2gradient(this, "{% static 'Starfighter Files/sprites/Asteroids/big-c.png' %}");
+                    this.hitRadius = ROIDS.large.hitRadius;
+                    this.size = ROIDS.large.size;
+                    this.points = ROIDS.large.points;
+                } else if (this.roidSize == 'medium') {
+                    file2gradient(this, "{% static 'Starfighter Files/sprites/Asteroids/med-c.png' %}");
+                    this.hitRadius = ROIDS.medium.hitRadius;
+                    this.size = ROIDS.medium.size;
+                    this.points = ROIDS.medium.points;
                 } else if (this.roidSize == 'small') {
-                    this.img.src = "{% static 'Starfighter Files/sprites/Asteroids/small-c.png' %}";
-                    this.hitRadius = ROIDS.SMALL.hitRadius;
-                    this.size = ROIDS.SMALL.size;
-                    this.points = ROIDS.SMALL.points;
+                    file2gradient(this, "{% static 'Starfighter Files/sprites/Asteroids/small-c.png' %}");
+                    this.hitRadius = ROIDS.small.hitRadius;
+                    this.size = ROIDS.small.size;
+                    this.points = ROIDS.small.points;
                 }
-                this.ready = false;
-                this.img.onload = () => { this.ready = true; }
             }
 
             update(dt) {                
@@ -451,50 +571,72 @@
                 ctx.restore();
             }
         }
+        class FXManager {
+            constructor() {
+                this.explosions = [];
+            }
+
+            spawnExplosion(x, y) {
+                // TODO
+            }
+
+            update(dt) {
+                // TODO
+            }
+
+            draw() {
+                // TODO
+            }
+        }
 
         class CollisionManager {
             constructor(bullets, roids, player) {
                 this.bullets = bullets;
                 this.roids = roids;
                 this.player = player;
+                this.gameOver = false;
+                this.roidsHit = [];
             }
 
-            isPlayerDead() {
-                // TODO
-
+            isCollision(self, other) {
+                const dx = self.x - other.x;
+                const dy = self.y - other.y;
+                const distance = Math.hypot(dx, dy);
+                return distance < (self.hitRadius + other.hitRadius);
             }
 
-            checkCollision() {
-                // TODO
+            update() {
+                this.roidsHit = [];
+                for (let roid of this.roids) {
+                    // Player collision
+                    if (this.isCollision(this.player, roid)) {
+                        return this.handleGameOver();
 
+                    // Bullet collision
+                    } else {
+                        for (let i = this.bullets.length - 1; i >= 0; i--) {
+                            if (this.isCollision(this.bullets[i], roid)) {
+                                // Remove bullet
+                                this.bullets.splice(i, 1);
+                                // Handle roid hit
+                                this.handleRoidHit(roid);
+                                break;
+                            }
+                        }
+                    }
+                }
+                return;
             }
 
-
-        }
-
-        class SpatialGrid {
-            constructor(cellSize) {
-                this.cellSize = cellSize;
-                this.grid = new Map();
+            handleGameOver() {
+                this.gameOver = true;
             }
 
-            getKey(x, y) {
-                // TODO
+            handleRoidHit(roid) {
+                // add to list of roids hit this frame
+                this.roidsHit.push(roid);
             }
 
-            insert(object) {
-                // TODO
-
-            }
-
-            getNearby(object) {
-                // TODO
-
-            }
-
-            clear() {
-                this.grid.clear();
-            }
         }
 
         // =============================
@@ -514,6 +656,7 @@
                 this.player = new Player(canvas.width/2, canvas.height/2);
                 this.soundManager = new SoundManager();
                 this.startScreen = new StartScreen();
+                this.fxManager = new FXManager();
 
                 // load sounds
                 // soundManager.loadSound('name', '{% static "path\to\shoot.wav" %}');
@@ -522,11 +665,14 @@
                 this.soundManager.loadSound('shoot', '{% static "Starfighter Files/Audio/Laser_Shoot.wav" %}');
 
                 // Game state
+                this.points = 0;
+                this.playerLives = 3;
                 this.bullets = [];
                 this.roids = [];
                 this.gameStarted = false
                 this.currentWave = 0;
                 this.roidsDestroyed = 0;
+                this.collisionManager = new CollisionManager(this.bullets, this.roids, this.player);
 
                 // Timing
                 this.lastTime = performance.now();
@@ -541,7 +687,7 @@
                         this.gameStarted = true;
                         this.startScreen.hide();
                         this.startNewWave()
-                        this.soundManager.playMusic('{% static "Starfighter Files/Music/asteroids-383043.mp3"%}');
+                        this.soundManager.playMusic('{% static "Starfighter Files/Music/asteroids-383043.mp3" %}');
                     }
                 };
 
@@ -558,7 +704,7 @@
                 // Calculate number of roids to spawn
                 const roidCount = Math.floor(INIT_ROIDS * Math.pow(1.5, this.currentWave - 1));
 
-                console.log(`Starting wave ${this.currentWave} with ${this.roidCount} asteroids`);
+                console.log(`Starting wave ${this.currentWave} with ${roidCount} asteroids`);
 
                 for (let i = 0; i<roidCount; i++) {
                     this.spawnRoid('large');
@@ -613,10 +759,11 @@
                 ctx.fillText(`Wave: ${this.currentWave} | Asteroids: ${this.roids.length}`, 10, 30);
             }
 
-            draw = (currentTime) => {
+            draw = (currentTime) => {                
                 // Time
                 const dt = (currentTime - this.lastTime) / 1000; // seconds
                 this.lastTime = currentTime;
+
 
                 // Clear
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -630,6 +777,19 @@
 
                 // Draw background layers
                 this.background.draw();
+
+                // Check for game over
+                this.collisionManager.update();
+                if (this.collisionManager.gameOver) {
+                    this.handleGameOver();
+                }
+                for (let roid of this.collisionManager.roidsHit) {
+                    this.soundManager.playSound('explosion');
+                    this.points += roid.points;
+                    this.handleRoidHit(roid);
+                }
+                this.roids = this.roids.filter(roid => !this.collisionManager.roidsHit.includes(roid));
+                this.bullets = this.collisionManager.bullets;
 
                 // Hnadle player drawing
                 this.player.update(keys, dt, this.soundManager);
@@ -664,7 +824,60 @@
                 this.checkWaveComplete();
                 this.drawWaveInfo();
 
+                // Update Collision Manager
+                this.collisionManager.bullets = this.bullets;
+                this.collisionManager.roids = this.roids;
+                this.collisionManager.player = this.player;
+
                 requestAnimationFrame(this.draw);
+            }
+
+            handleGameOver() {
+                console.log("Game Over!");
+                this.soundManager.stopAllLoopingSounds();
+                this.soundManager.stopMusic();
+                this.gameStarted = false;
+                this.startScreen.visible = true;
+                this.currentWave = 0;
+                this.points = 0;
+                this.playerLives = 3;
+                this.bullets = [];
+                this.roids = [];
+                this.collisionManager.gameOver = false;
+            }
+
+            handleRoidHit(roid) {
+                // Spawn smaller roids if applicable
+                if (roid.roidSize === 'large') {
+                    this.splitRoid('large', roid.x, roid.y);
+                } else if (roid.roidSize === 'medium') {
+                    this.splitRoid('medium', roid.x, roid.y);
+                }
+            }
+
+            splitRoid(size, x, y) {
+                if (size === 'large') {
+                    for (let i = 0; i < 2; i++) {
+                        this.spawnRoidAt('medium', x, y);
+                    }
+                } else if (size === 'medium') {
+                    for (let i = 0; i < 2; i++) {
+                        this.spawnRoidAt('small', x, y);
+                    }
+                }
+            }
+
+            spawnRoidAt(size, x, y) {
+                // Random Velocity
+                const speed = ROID_MIN_V + Math.random() * (ROID_MAX_V - ROID_MIN_V);
+                const angle = Math.random() * Math.PI * 2;
+
+                // Random Spin
+                const w = (Math.random() * (ROID_MAX_W - ROID_MIN_W) + ROID_MIN_W) * (Math.random() > 0.5 ? 1 : -1);
+                
+                // Create roid
+                const roid = new Roid(size, x, y, angle, speed, w, this.player.hitboxActive);
+                this.roids.push(roid);
             }
         }
 
