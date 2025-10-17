@@ -21,15 +21,13 @@
 
     <script>
 
-        // TODO: add animations for ships and bullets
+        // TODO: add animations for ships and bullets and invincibility
         // TODO: add explosion animations and fx
         // TODO: add point system
         // TODO: add arcade style main menu
         // TODO: add background to main menu
         // Add gameover screen
         // Add delay between waves, asteroid splitting, dying, etc
-        // Fix only using large roid hitbox not smaller ones 
-        // Fix wave system (spawns way too many roids)
 
         // =============================
         // Constants
@@ -61,6 +59,7 @@
         const ROID_MIN_V = 50;
         const ROID_MAX_W = 2.0;
         const ROID_MIN_W = 0.5;
+        const MAX_ROIDS = 200;
 
         // Game
         const INIT_ROIDS = 1;
@@ -152,17 +151,6 @@
             cx.putImageData(imageData, 0, 0);
             return c.toDataURL('image/png');
         }
-
-        // Example for Player constructor: replace the loading block
-        // inside class Player constructor:
-        // ---------------------------------------------------------
-        /*
-        this.img = new Image();
-        this.img.src = "{% static 'Starfighter Files/sprites/Ships/ship-a/ship-a1.png' %}";
-        this.ready = false;
-        this.img.onload = () => { this.ready = true; }
-        */
-        // Replace with:
 
         /**
          * Load an image, recolor it with a gradient, and assign to a target object.
@@ -336,8 +324,23 @@
                         x: Math.random() * canvas.width,
                         y: Math.random() * canvas.height,
                         r: Math.random() * MAX_STAR_SIZE + 1,
-                        alpha: Math.random() * 0.5 + 0.5
+                        alpha: Math.random() * 0.5 + 0.5,
+                        targetAlpha: Math.random() * 0.5 + 0.5,
+                        flickerSpeed: 0.2 + Math.random() * 0.3  // how fast it sparkles
                     });
+                }
+            }
+
+            update(dt) {
+                for (let star of this.stars) {
+                    // Move alpha toward targetAlpha
+                    const diff = star.targetAlpha - star.alpha;
+                    star.alpha += diff * star.flickerSpeed * dt * 60;  // scaled by framerate
+
+                    // Once close enough, pick a new random target
+                    if (Math.abs(diff) < 0.01) {
+                        star.targetAlpha = Math.random() * 0.5 + 0.5; // new sparkle intensity
+                    }
                 }
             }
 
@@ -347,7 +350,12 @@
 
                 for (let star of this.stars) {
                     ctx.globalAlpha = star.alpha;
-                    ctx.fillStyle = DEFAULT_PRIMARY;
+
+                    // Optional color sparkle
+                    const hueShift = Math.random() * 20 - 10; // small hue variation
+                    const color = `hsl(${100 + hueShift}, 100%, 70%)`;
+
+                    ctx.fillStyle = color;
                     ctx.beginPath();
                     ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
                     ctx.fill();
@@ -380,7 +388,8 @@
                 this.angVel = Math.PI; // rad/s
                 this.friction = FRICTION;    // per second
                 this.vel = SHIP_VEL;     // pixels per second
-                this.hitboxActive = true // On for debugging
+                this.invincible = false;
+                this.hitboxActive = false // CHANGE ON FOR DEBUGGING
             }
 
             update(keys, dt, soundManager) {                
@@ -571,23 +580,50 @@
                 ctx.restore();
             }
         }
-        class FXManager {
-            constructor() {
-                this.explosions = [];
-            }
+        class Explosion {
+            constructor(x, y, width, height, frameCount, frameDur, src, columns) {
+                this.x = x;
+                this.y = y;
+                this.frameWidth = width;
+                this.frameHeight = height;
+                this.frameCount = frameCount;
+                this.frameDur = frameDur; // seconds per frame
+                this.columns = columns;
+                this.elapsedTime = 0;
+                this.done = false;
 
-            spawnExplosion(x, y) {
-                // TODO
+                // Load image once
+                this.img = new Image();
+                this.img.src = src;
+                this.ready = false;
+                this.img.onload = () => this.ready = true;
             }
 
             update(dt) {
-                // TODO
+                if (this.done) return;
+                this.elapsedTime += dt;
+                if (this.elapsedTime >= this.frameCount * this.frameDur) {
+                    this.done = true;
+                }
             }
 
-            draw() {
-                // TODO
+            draw(ctx) {
+                if (!this.ready || this.done) return;
+                const currentFrame = Math.floor(this.elapsedTime / this.frameDur);
+                const sx = (currentFrame % this.columns) * this.frameWidth;
+                const sy = Math.floor(currentFrame / this.columns) * this.frameHeight;
+
+                ctx.drawImage(
+                    this.img,
+                    sx, sy, this.frameWidth, this.frameHeight,
+                    this.x - this.frameWidth / 2,
+                    this.y - this.frameHeight / 2,
+                    this.frameWidth,
+                    this.frameHeight
+                );
             }
         }
+
 
         class CollisionManager {
             constructor(bullets, roids, player) {
@@ -609,21 +645,25 @@
                 this.roidsHit = [];
                 for (let roid of this.roids) {
                     // Player collision
-                    if (this.isCollision(this.player, roid)) {
-                        return this.handleGameOver();
-
+                    if (!this.player.invincible) {
+                        if (this.isCollision(this.player, roid)) {
+                            return this.handleGameOver();
+                        } else {
+                            this.gameOver = false;
+                        }
                     // Bullet collision
-                    } else {
-                        for (let i = this.bullets.length - 1; i >= 0; i--) {
-                            if (this.isCollision(this.bullets[i], roid)) {
-                                // Remove bullet
-                                this.bullets.splice(i, 1);
-                                // Handle roid hit
-                                this.handleRoidHit(roid);
-                                break;
-                            }
+                    } 
+                    
+                    for (let i = this.bullets.length - 1; i >= 0; i--) {
+                        if (this.isCollision(this.bullets[i], roid)) {
+                            // Remove bullet
+                            this.bullets.splice(i, 1);
+                            // Handle roid hit
+                            this.handleRoidHit(roid);
+                            break;
                         }
                     }
+                
                 }
                 return;
             }
@@ -656,15 +696,15 @@
                 this.player = new Player(canvas.width/2, canvas.height/2);
                 this.soundManager = new SoundManager();
                 this.startScreen = new StartScreen();
-                this.fxManager = new FXManager();
 
                 // load sounds
                 // soundManager.loadSound('name', '{% static "path\to\shoot.wav" %}');
-                this.soundManager.loadSound('thrust', '{% static "Starfighter Files/Audio/thrust.wav" %}');
+                this.soundManager.loadSound('thrust', '{% static "Starfighter Files/Audio/thrustModified.wav" %}');
                 this.soundManager.loadSound('explosion', '{% static "Starfighter Files/Audio/Explosion.wav" %}');
                 this.soundManager.loadSound('shoot', '{% static "Starfighter Files/Audio/Laser_Shoot.wav" %}');
 
                 // Game state
+                this.explosions = [];
                 this.points = 0;
                 this.playerLives = 3;
                 this.bullets = [];
@@ -672,6 +712,7 @@
                 this.gameStarted = false
                 this.currentWave = 0;
                 this.roidsDestroyed = 0;
+                this.invincDur = 0; // seconds of invincibility after respawn
                 this.collisionManager = new CollisionManager(this.bullets, this.roids, this.player);
 
                 // Timing
@@ -679,6 +720,18 @@
                 this.lastSpaceBar = false;
 
                 this.setupStartHandlers();
+            }
+
+            handleRespawn() {
+                // Reset player position and velocity
+                this.player.x = canvas.width / 2;
+                this.player.y = canvas.height / 2;
+                this.player.vx = 0;
+                this.player.vy = 0;
+
+                // Clear bullets
+                this.bullets = [];
+                this.collisionManager.bullets = this.bullets;
             }
 
             setupStartHandlers() {
@@ -697,6 +750,7 @@
 
             startNewWave() {
                 // Clear wave variables
+                this.waveInProgress = false;
                 this.currentWave++;
                 this.roids = [];
                 this.roidsDestroyed = 0;
@@ -707,7 +761,12 @@
                 console.log(`Starting wave ${this.currentWave} with ${roidCount} asteroids`);
 
                 for (let i = 0; i<roidCount; i++) {
-                    this.spawnRoid('large');
+                    if (this.roids.length < MAX_ROIDS) {
+                        this.spawnRoid('large');
+                    } else {
+                        console.log("Max roids reached, not spawning more this wave");
+                        break;
+                    }
                 }
             }
 
@@ -734,9 +793,16 @@
             }
 
             checkWaveComplete() {
-                if (this.roids.length === 0 && this.gameStarted) {
+                if (this.roids.length === 0 && this.gameStarted && !this.waveInProgress) {
+                    this.waveInProgress = true;
                     console.log(`Wave ${this.currentWave} complete! Starting next wave ...`);
-                    setTimeout(() => {this.startNewWave();}, 1000);
+                    setTimeout(() => {
+                        if (!this.gameStarted) {
+                            this.waveInProgress = false;
+                            return;
+                        }
+                        this.startNewWave();
+                    }, 1000);
                 }
             }
 
@@ -763,10 +829,16 @@
                 // Time
                 const dt = (currentTime - this.lastTime) / 1000; // seconds
                 this.lastTime = currentTime;
-
+                if (this.invincDur > 0) {
+                    this.invincDur = Math.max(0, this.invincDur - dt);
+                    this.player.invincible = true;
+                } else {
+                    this.player.invincible = false;
+                }
 
                 // Clear
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
+
 
                 // Start Screen
                 if (!this.gameStarted) {
@@ -776,15 +848,22 @@
                 }
 
                 // Draw background layers
+                this.background.update(dt);
                 this.background.draw();
 
                 // Check for game over
                 this.collisionManager.update();
-                if (this.collisionManager.gameOver) {
+                if (this.collisionManager.gameOver && !this.player.invincible && !(this.playerLives > 1)) {
                     this.handleGameOver();
+                } else if (this.collisionManager.gameOver && !this.player.invincible && (this.playerLives > 1)) {
+                    this.playerLives--;
+                    this.invincDur = 3; // seconds of invincibility
+                    this.handleRespawn();
+                    this.collisionManager.gameOver = false;
                 }
                 for (let roid of this.collisionManager.roidsHit) {
                     this.soundManager.playSound('explosion');
+                    this.spawnExplosion(roid.x, roid.y);
                     this.points += roid.points;
                     this.handleRoidHit(roid);
                 }
@@ -820,6 +899,13 @@
                 this.updateRoids(dt);
                 this.drawRoids();
 
+                // Explqosions
+                this.explosions = this.explosions.filter(e => !e.done);
+                for (let exp of this.explosions) {
+                    exp.update(dt);
+                    exp.draw(ctx);
+                }
+
                 // Check Wave complete
                 this.checkWaveComplete();
                 this.drawWaveInfo();
@@ -831,6 +917,18 @@
 
                 requestAnimationFrame(this.draw);
             }
+
+            spawnExplosion(x, y) {
+                const frameWidth = 64;
+                const frameHeight = 64;
+                const frameCount = 20;
+                const frameTime = 0.04;
+                const columns = 6;
+                const src = "{% static 'Starfighter Files/sprites/FX/explosion/explosion-sheet.png' %}";
+                const exp = new Explosion(x, y, frameWidth, frameHeight, frameCount, frameTime, src, columns);
+                this.explosions.push(exp);
+            }
+
 
             handleGameOver() {
                 console.log("Game Over!");
@@ -844,6 +942,7 @@
                 this.bullets = [];
                 this.roids = [];
                 this.collisionManager.gameOver = false;
+                this.waveInProgress = false;
             }
 
             handleRoidHit(roid) {
